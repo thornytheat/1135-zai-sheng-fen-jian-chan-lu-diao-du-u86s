@@ -18,9 +18,15 @@ def run(capacity=None):
     journal = weigh.read(DATA / "weighbridge_shift_north.csv", CUT)
     samples, orphans = sample.from_file(DATA / "conveyor_cut_tag_log.csv", journal.lots)
     history = model.read(DATA / "separated_material_yield_history.csv")
-    curves = model.per_polymer(history, FOLD, CUT.date())
+    overhauls = model.overhauls(DATA / "line_overhaul_register.csv", CUT.date())
+    curves, fits = model.calibrate(history, FOLD, CUT.date(), overhauls)
+    overhauled = frozenset(record.line for record in overhauls)
     forecasts = tuple(
-        model.predict(lot, samples[lot.lot], curves.get(lot.material))
+        model.predict(
+            lot,
+            samples[lot.lot],
+            model.resolve(curves, lot.line, lot.material, overhauled),
+        )
         for lot in journal.lots
     )
     classifications = grade.grade_batch(journal.lots, samples, forecasts)
@@ -70,7 +76,7 @@ def run(capacity=None):
         "stages": [
             weigh.evidence(journal),
             sample.evidence(samples, orphans),
-            model.evidence(curves, forecasts),
+            model.evidence(curves, forecasts, fits),
             grade.evidence(classifications),
             {
                 **store.evidence(allocations),
